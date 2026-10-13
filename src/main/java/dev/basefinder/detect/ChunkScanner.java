@@ -27,6 +27,7 @@ import java.util.Set;
 public final class ChunkScanner {
 	private static final long BUDGET_NANOS = 1_500_000L; // about 1.5 ms of scanning per tick
 	private static final int RESCAN_TICKS = 100;
+	private static final int MAX_REMEMBERED = 1500;
 	/** Safety cap so picking a very common block (stone, dirt) cannot flood one chunk's cache. */
 	private static final int MAX_BLOCK_HITS_PER_CHUNK = 3000;
 
@@ -34,6 +35,8 @@ public final class ChunkScanner {
 		public final int cx;
 		public final int cz;
 		public List<Hit> hits = List.of();
+		/** True when the chunk is no longer loaded and this is remembered data. */
+		public boolean unloaded;
 		long lastScanTick;
 
 		Entry(int cx, int cz) {
@@ -66,8 +69,30 @@ public final class ChunkScanner {
 
 	public void onChunkUnload(LevelChunk chunk) {
 		long key = keyOf(chunk);
-		cache.remove(key);
 		queued.remove(key);
+		Entry entry = cache.get(key);
+		if (entry != null && BaseFinderConfig.get().espMemory && !entry.hits.isEmpty()) {
+			entry.unloaded = true;
+			trimMemory();
+		} else {
+			cache.remove(key);
+		}
+	}
+
+	private void trimMemory() {
+		int remembered = 0;
+		for (Entry e : cache.values()) {
+			if (e.unloaded) {
+				remembered++;
+			}
+		}
+		var it = cache.values().iterator();
+		while (remembered > MAX_REMEMBERED && it.hasNext()) {
+			if (it.next().unloaded) {
+				it.remove();
+				remembered--;
+			}
+		}
 	}
 
 	public void clear() {
@@ -100,7 +125,8 @@ public final class ChunkScanner {
 			for (Entry e : cache.values()) {
 				double dx = e.cx * 16 + 8 - px;
 				double dz = e.cz * 16 + 8 - pz;
-				if (Math.abs(dx) <= reach && Math.abs(dz) <= reach && tick - e.lastScanTick >= RESCAN_TICKS) {
+				if (!e.unloaded && Math.abs(dx) <= reach && Math.abs(dz) <= reach
+					&& tick - e.lastScanTick >= RESCAN_TICKS) {
 					enqueue(pack(e.cx, e.cz));
 				}
 			}
@@ -114,10 +140,14 @@ public final class ChunkScanner {
 			int cz = (int) (key >> 32);
 			LevelChunk chunk = level.getChunkSource().getChunkNow(cx, cz);
 			if (chunk == null) {
-				cache.remove(key);
+				Entry old = cache.get(key);
+				if (old == null || !old.unloaded) {
+					cache.remove(key);
+				}
 				continue;
 			}
 			Entry entry = cache.computeIfAbsent(key, k -> new Entry(cx, cz));
+			entry.unloaded = false;
 			entry.hits = scan(chunk, cfg);
 			entry.lastScanTick = tick;
 		}

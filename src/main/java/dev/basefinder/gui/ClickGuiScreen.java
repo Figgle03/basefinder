@@ -4,6 +4,7 @@ import dev.basefinder.BaseFinderMod;
 import dev.basefinder.config.BaseFinderConfig;
 import dev.basefinder.config.EspCategory;
 import dev.basefinder.detect.BlockSets;
+import dev.basefinder.detect.Target;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
@@ -72,7 +73,7 @@ public final class ClickGuiScreen extends Screen {
 	};
 
 	private enum Tab {
-		GENERAL("General"), STORAGE("Storage"), BLOCKS("Blocks"), ENTITIES("Entities"),
+		GENERAL("General"), FOUND("Found"), MODULES("Modules"), STORAGE("Storage"), BLOCKS("Blocks"), ENTITIES("Entities"),
 		STRUCTURES("Structures"), LABELS("Labels");
 
 		final String title;
@@ -252,9 +253,79 @@ public final class ClickGuiScreen extends Screen {
 		}
 	}
 
+	private final class CycleRow extends Row {
+		private final String[] options;
+		private final IntSupplier get;
+		private final IntConsumer set;
+
+		CycleRow(String label, String[] options, IntSupplier get, IntConsumer set) {
+			super(label);
+			this.options = options;
+			this.get = get;
+			this.set = set;
+		}
+
+		@Override
+		void draw(GuiGraphicsExtractor g, int x, int y, int w, boolean hover) {
+			if (hover) {
+				g.fill(x, y, x + w, y + ROW_H - 2, ROW_HOVER);
+			}
+			g.text(font, fit(label, w - 130), x + 8, y + 8, TEXT, false);
+			String v = options[Math.max(0, Math.min(options.length - 1, get.getAsInt()))];
+			g.fill(x + w - 112, y + 3, x + w - 6, y + ROW_H - 5, BUTTON);
+			g.fill(x + w - 112, y + 3, x + w - 110, y + ROW_H - 5, ACCENT);
+			g.text(font, fit(v, 96), x + w - 108 + (100 - Math.min(96, font.width(v))) / 2, y + 8, TEXT, false);
+		}
+
+		@Override
+		boolean click(int x, int y, int w, int mx, int my) {
+			set.accept((get.getAsInt() + 1) % options.length);
+			return true;
+		}
+	}
+
+	private final class FoundRow extends Row {
+		private final Target target;
+		private final String coords;
+
+		FoundRow(Target t) {
+			super(t.name() + " " + coordsOf(t));
+			this.target = t;
+			this.coords = coordsOf(t);
+		}
+
+		@Override
+		void draw(GuiGraphicsExtractor g, int x, int y, int w, boolean hover) {
+			if (hover) {
+				g.fill(x, y, x + w, y + ROW_H - 2, ROW_HOVER);
+			}
+			g.fill(x + 6, y + 6, x + 10, y + 18, 0xFF000000 | target.rgb());
+			String right = Math.round(target.distance()) + "m   " + coords;
+			int rw = font.width(right);
+			g.text(font, fit(target.name(), w - rw - 40), x + 16, y + 8, target.isBase() ? ACCENT : TEXT, false);
+			g.text(font, right, x + w - 6 - rw, y + 8, MUTED, false);
+		}
+	}
+
+	private static String coordsOf(Target t) {
+		if (t.blockPos() != null) {
+			return t.blockPos().getX() + " " + t.blockPos().getY() + " " + t.blockPos().getZ();
+		}
+		return (int) Math.floor(t.cx()) + " " + (int) Math.floor(t.cy()) + " " + (int) Math.floor(t.cz());
+	}
+
+	private static int lerpColor(int a, int b, float t) {
+		int r = (int) (((a >> 16) & 0xFF) * (1 - t) + ((b >> 16) & 0xFF) * t);
+		int g = (int) (((a >> 8) & 0xFF) * (1 - t) + ((b >> 8) & 0xFF) * t);
+		int bl = (int) ((a & 0xFF) * (1 - t) + (b & 0xFF) * t);
+		return 0xFF000000 | (r << 16) | (g << 8) | bl;
+	}
+
 	private final BaseFinderConfig cfg = BaseFinderConfig.get();
 	private final Map<Tab, List<Row>> rows = new EnumMap<>(Tab.class);
 	private final List<BlockInfo> blocksView = new ArrayList<>();
+	private final List<Row> foundRows = new ArrayList<>();
+	private long foundStamp;
 
 	private Tab tab = Tab.GENERAL;
 	private String filter = "";
@@ -292,11 +363,35 @@ public final class ClickGuiScreen extends Screen {
 		for (EspCategory c : EspCategory.values()) {
 			general.add(new CategoryRow(c));
 		}
+		general.add(new HeaderRow("Markers"));
+		general.add(new CycleRow("Marker style", new String[] {"Outline", "Filled", "Outline + fill"},
+			() -> cfg.markerStyle, v -> cfg.markerStyle = v));
+		general.add(new SliderRow("Outline thickness", 1, 10, () -> cfg.outlineWidth, v -> cfg.outlineWidth = v));
+		general.add(new ToggleRow("Fade with distance", () -> cfg.fadeByDistance, v -> cfg.fadeByDistance = v));
+		general.add(new ToggleRow("Group storage into bases", () -> cfg.groupBases, v -> cfg.groupBases = v));
+		general.add(new SliderRow("Min containers per base", 2, 20, () -> cfg.baseMinContainers,
+			v -> cfg.baseMinContainers = v));
 		general.add(new HeaderRow("Scanning"));
 		general.add(new SliderRow("Range (blocks)", 16, 512, () -> cfg.range, v -> cfg.range = v));
 		general.add(new SliderRow("Max highlights", 100, 10000, () -> cfg.maxTargets, v -> cfg.maxTargets = v));
 		general.add(new SliderRow("Fill opacity %", 5, 90, () -> cfg.fillOpacity, v -> cfg.fillOpacity = v));
+		general.add(new ToggleRow("Remember found blocks after chunks unload", () -> cfg.espMemory,
+			v -> cfg.espMemory = v));
 		rows.put(Tab.GENERAL, general);
+		rows.put(Tab.FOUND, new ArrayList<>());
+
+		List<Row> mods = new ArrayList<>();
+		mods.add(new HeaderRow("Render"));
+		mods.add(new ToggleRow("Fullbright", () -> cfg.moduleOn("fullbright"), v -> cfg.setModule("fullbright", v)));
+		mods.add(new ToggleRow("Zoom (hold C)", () -> cfg.moduleOn("zoom"), v -> cfg.setModule("zoom", v)));
+		mods.add(new SliderRow("Zoom FOV", 30, 60, () -> cfg.zoomFov, v -> cfg.zoomFov = v));
+		mods.add(new HeaderRow("Utility"));
+		mods.add(new ToggleRow("Toggle sprint", () -> cfg.moduleOn("togglesprint"),
+			v -> cfg.setModule("togglesprint", v)));
+		mods.add(new HeaderRow("HUD"));
+		mods.add(new ToggleRow("Coordinates", () -> cfg.moduleOn("coords"), v -> cfg.setModule("coords", v)));
+		mods.add(new ToggleRow("Module list", () -> cfg.moduleOn("modulelist"), v -> cfg.setModule("modulelist", v)));
+		rows.put(Tab.MODULES, mods);
 
 		List<Row> storage = new ArrayList<>();
 		storage.add(new HeaderRow("Storage types"));
@@ -352,9 +447,42 @@ public final class ClickGuiScreen extends Screen {
 	}
 
 	/** Rows currently listed (settings tabs, or search results across tabs). Null on the Blocks tab. */
+	private void refreshFound() {
+		if (tab != Tab.FOUND) {
+			return;
+		}
+		long now = System.currentTimeMillis();
+		if (now - foundStamp < 400 && !foundRows.isEmpty()) {
+			return;
+		}
+		foundStamp = now;
+		List<Target> source = new ArrayList<>(BaseFinderMod.targets());
+		source.sort(Comparator.comparing((Target t) -> !t.isBase()).thenComparingDouble(Target::distance));
+		foundRows.clear();
+		for (Target t : source) {
+			foundRows.add(new FoundRow(t));
+			if (foundRows.size() >= 400) {
+				break;
+			}
+		}
+	}
+
 	private List<Row> currentRows() {
 		if (tab == Tab.BLOCKS) {
 			return null;
+		}
+		if (tab == Tab.FOUND) {
+			String fq = filter.trim().toLowerCase(Locale.ROOT);
+			if (fq.isEmpty()) {
+				return foundRows;
+			}
+			List<Row> matches = new ArrayList<>();
+			for (Row r : foundRows) {
+				if (r.label.toLowerCase(Locale.ROOT).contains(fq)) {
+					matches.add(r);
+				}
+			}
+			return matches;
 		}
 		String q = filter.trim().toLowerCase(Locale.ROOT);
 		if (q.isEmpty()) {
@@ -520,13 +648,17 @@ public final class ClickGuiScreen extends Screen {
 
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float delta) {
+		refreshFound();
 		clampScroll();
 		g.fill(0, 0, this.width, this.height, DIM);
 
 		// panel
 		g.fill(panelX - 1, panelY - 1, panelX + panelW + 1, panelY + panelH + 1, BORDER);
 		g.fill(panelX, panelY, panelX + panelW, panelY + panelH, PANEL);
-		g.fill(panelX, panelY, panelX + panelW, panelY + HEADER_H, HEADER);
+		for (int i = 0; i < panelW; i += 4) {
+			g.fill(panelX + i, panelY, Math.min(panelX + panelW, panelX + i + 4), panelY + HEADER_H,
+				lerpColor(HEADER, 0xFF2A1F5C, i / (float) panelW));
+		}
 		g.fill(panelX, panelY + HEADER_H - 1, panelX + panelW, panelY + HEADER_H, ACCENT);
 		g.text(font, "BASE FINDER", panelX + 12, panelY + 11, TEXT, true);
 		String count = BaseFinderMod.targetCount() + " highlighted";
@@ -547,7 +679,8 @@ public final class ClickGuiScreen extends Screen {
 			} else if (hover) {
 				g.fill(panelX, ty, panelX + SIDE_W, ty + 26, 0xFF141720);
 			}
-			g.text(font, t.title, panelX + 16, ty + 9, active ? TEXT : MUTED, false);
+			g.fill(panelX + 9, ty + 10, panelX + 13, ty + 14, active ? ACCENT : OFF);
+			g.text(font, t.title, panelX + 20, ty + 9, active ? TEXT : MUTED, false);
 			ty += 28;
 		}
 		// master switch at the bottom of the sidebar
@@ -591,7 +724,8 @@ public final class ClickGuiScreen extends Screen {
 			}
 		}
 		if (rowCount() == 0) {
-			g.text(font, tab == Tab.BLOCKS ? "No blocks match." : "No settings match.", cx + 8, lt + 8, MUTED, false);
+			g.text(font, tab == Tab.BLOCKS ? "No blocks match." : tab == Tab.FOUND
+				? "Nothing detected yet. Walk around with ESP on." : "No settings match.", cx + 8, lt + 8, MUTED, false);
 		}
 
 		// scrollbar

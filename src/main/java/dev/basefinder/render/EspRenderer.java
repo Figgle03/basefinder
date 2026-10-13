@@ -36,10 +36,11 @@ import java.util.OptionalDouble;
 import java.util.OptionalInt;
 
 /**
- * Draws translucent filled boxes through walls. The pipeline setup follows the "Rendering in the World"
- * page of the Fabric 26.1.2 docs (custom pipeline with the depth test removed).
+ * Draws markers through walls. The pipeline setup follows the "Rendering in the World" page of the Fabric 26.1.2
+ * docs (custom pipeline with the depth test removed).
  *
- * Extraction phase: copy the immutable target list. Draw phase: build one mesh and issue one draw call.
+ * Markers are thin outline bars (and/or a light fill), faded with distance. Everything goes into one mesh and one
+ * draw call. The mesh is not depth-sorted, which keeps big marker counts cheap.
  */
 public final class EspRenderer {
 	private static final RenderPipeline FILLED_THROUGH_WALLS = RenderPipelines.register(
@@ -66,10 +67,22 @@ public final class EspRenderer {
 	}
 
 	public void draw(LevelRenderContext context) {
-		if (frameTargets.isEmpty()) {
+		boolean any = false;
+		for (Target t : frameTargets) {
+			if (t.showBox()) {
+				any = true;
+				break;
+			}
+		}
+		if (!any) {
 			return;
 		}
-		float alpha = BaseFinderConfig.get().fillOpacity / 100f;
+
+		BaseFinderConfig cfg = BaseFinderConfig.get();
+		float fillAlpha = cfg.fillOpacity / 100f;
+		float lineWidth = cfg.outlineWidth * 0.01f;
+		int style = cfg.markerStyle;
+		double range = Math.max(16, cfg.range);
 
 		PoseStack matrices = context.poseStack();
 		Vec3 camera = context.levelState().cameraRenderState.pos;
@@ -80,16 +93,57 @@ public final class EspRenderer {
 			FILLED_THROUGH_WALLS.getVertexFormatMode(), FILLED_THROUGH_WALLS.getVertexFormat());
 		Matrix4fc pose = matrices.last().pose();
 		for (Target t : frameTargets) {
+			if (!t.showBox()) {
+				continue;
+			}
 			float r = ((t.rgb() >> 16) & 0xFF) / 255f;
 			float g = ((t.rgb() >> 8) & 0xFF) / 255f;
 			float b = (t.rgb() & 0xFF) / 255f;
+			float fade = cfg.fadeByDistance ? (float) Math.max(0.35, 1.0 - 0.65 * Math.min(1.0, t.distance() / range)) : 1f;
 			AABB box = t.box().inflate(0.002);
-			addBox(pose, buffer, (float) box.minX, (float) box.minY, (float) box.minZ,
-				(float) box.maxX, (float) box.maxY, (float) box.maxZ, r, g, b, alpha);
+			float x0 = (float) box.minX;
+			float y0 = (float) box.minY;
+			float z0 = (float) box.minZ;
+			float x1 = (float) box.maxX;
+			float y1 = (float) box.maxY;
+			float z1 = (float) box.maxZ;
+
+			boolean base = t.isBase();
+			if (!base && style != 0) {
+				addBox(pose, buffer, x0, y0, z0, x1, y1, z1, r, g, b, fillAlpha * fade);
+			}
+			if (base || style != 1) {
+				float size = Math.max(x1 - x0, z1 - z0);
+				float w = lineWidth * (float) Math.max(1.0, Math.min(6.0, size / 2.5));
+				addEdges(pose, buffer, x0, y0, z0, x1, y1, z1, w, r, g, b, fade);
+			}
 		}
 		matrices.popPose();
 
 		submit(Minecraft.getInstance(), buffer);
+	}
+
+	/** Twelve thin bars along the edges of a box. */
+	private static void addEdges(Matrix4fc m, BufferBuilder v, float x0, float y0, float z0,
+								 float x1, float y1, float z1, float w, float r, float g, float b, float a) {
+		float[] ys = {y0, y1 - w};
+		float[] zs = {z0, z1 - w};
+		float[] xs = {x0, x1 - w};
+		for (float y : ys) {
+			for (float z : zs) {
+				addBox(m, v, x0, y, z, x1, y + w, z + w, r, g, b, a);
+			}
+		}
+		for (float x : xs) {
+			for (float z : zs) {
+				addBox(m, v, x, y0, z, x + w, y1, z + w, r, g, b, a);
+			}
+		}
+		for (float x : xs) {
+			for (float y : ys) {
+				addBox(m, v, x, y, z0, x + w, y + w, z1, r, g, b, a);
+			}
+		}
 	}
 
 	private static void addBox(Matrix4fc m, BufferBuilder v, float x0, float y0, float z0,
@@ -147,9 +201,10 @@ public final class EspRenderer {
 		}
 		GpuBuffer vertices = vertexBuffer.currentBuffer();
 
-		mesh.sortQuads(ALLOCATOR, RenderSystem.getProjectionType().vertexSorting());
-		GpuBuffer indices = FILLED_THROUGH_WALLS.getVertexFormat().uploadImmediateIndexBuffer(mesh.indexBuffer());
-		VertexFormat.IndexType indexType = mesh.drawState().indexType();
+		// Shared sequential quad indices: no per-frame sorting or index upload.
+		var shape = RenderSystem.getSequentialBuffer(FILLED_THROUGH_WALLS.getVertexFormatMode());
+		GpuBuffer indices = shape.getBuffer(state.indexCount());
+		VertexFormat.IndexType indexType = shape.type();
 
 		GpuBufferSlice transforms = RenderSystem.getDynamicUniforms()
 			.writeTransform(RenderSystem.getModelViewMatrix(), COLOR_MODULATOR, MODEL_OFFSET, TEXTURE_MATRIX);

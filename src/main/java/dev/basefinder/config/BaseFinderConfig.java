@@ -25,6 +25,8 @@ public final class BaseFinderConfig {
 		"chest", "trapped_chest", "barrel", "shulker_box", "ender_chest", "hopper", "dispenser", "dropper"
 	};
 
+	public static final String[] MODULE_KEYS = {"zoom", "fullbright", "togglesprint", "coords", "modulelist"};
+
 	public boolean masterEnabled = true;
 	public Map<String, Boolean> enabled = new LinkedHashMap<>();
 	public Map<String, Integer> colors = new LinkedHashMap<>();
@@ -44,6 +46,17 @@ public final class BaseFinderConfig {
 	public int maxLabels = 20;
 
 	public boolean entityIncludeMobs = false;
+	/** 0 = outline, 1 = filled, 2 = outline plus light fill. */
+	public int markerStyle = 0;
+	/** Outline thickness in hundredths of a block. */
+	public int outlineWidth = 3;
+	public boolean fadeByDistance = true;
+	public boolean groupBases = true;
+	public int baseMinContainers = 4;
+	/** Keep found blocks marked after their chunk unloads (only data the client already received). */
+	public boolean espMemory = true;
+	public Map<String, Boolean> modules = new LinkedHashMap<>();
+	public int zoomFov = 30;
 	public Map<String, Boolean> storageTypes = new LinkedHashMap<>();
 	public boolean structureShowMarkers = true;
 	public boolean structureShowDoors = false;
@@ -89,6 +102,14 @@ public final class BaseFinderConfig {
 		if (blocks == null) blocks = new ArrayList<>();
 		if (blockColors == null) blockColors = new LinkedHashMap<>();
 		if (storageTypes == null) storageTypes = new LinkedHashMap<>();
+		if (modules == null) modules = new LinkedHashMap<>();
+		for (String k : MODULE_KEYS) {
+			modules.putIfAbsent(k, k.equals("coords") || k.equals("modulelist"));
+		}
+		zoomFov = Math.max(30, Math.min(60, zoomFov));
+		markerStyle = Math.max(0, Math.min(2, markerStyle));
+		outlineWidth = Math.max(1, Math.min(10, outlineWidth));
+		baseMinContainers = Math.max(2, Math.min(20, baseMinContainers));
 		for (EspCategory c : EspCategory.values()) {
 			enabled.putIfAbsent(c.name(), c != EspCategory.ENTITY);
 			colors.putIfAbsent(c.name(), c.defaultColor);
@@ -130,6 +151,14 @@ public final class BaseFinderConfig {
 
 	public void setColor(EspCategory c, int rgb) {
 		colors.put(c.name(), rgb & 0xFFFFFF);
+	}
+
+	public boolean moduleOn(String key) {
+		return modules.getOrDefault(key, false);
+	}
+
+	public void setModule(String key, boolean on) {
+		modules.put(key, on);
 	}
 
 	public boolean storageAllowed(String key) {

@@ -3,8 +3,11 @@ package dev.basefinder;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.basefinder.config.BaseFinderConfig;
 import dev.basefinder.detect.DetectionManager;
+import dev.basefinder.detect.Target;
 import dev.basefinder.gui.ClickGuiScreen;
 import dev.basefinder.render.EspRenderer;
+import dev.basefinder.modules.ModuleHud;
+import dev.basefinder.modules.Modules;
 import dev.basefinder.render.LabelOverlay;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents;
@@ -18,6 +21,8 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.resources.Identifier;
 
+import java.util.List;
+
 /** Entry point. Wires detection, rendering, config and GUI together. */
 public final class BaseFinderMod implements ClientModInitializer {
 	public static final String MOD_ID = "basefinder";
@@ -26,6 +31,11 @@ public final class BaseFinderMod implements ClientModInitializer {
 		KeyMapping.Category.register(Identifier.fromNamespaceAndPath(MOD_ID, "main"));
 
 	private static DetectionManager detectionRef;
+
+	/** The current list of highlighted things (read-only snapshot). */
+	public static List<Target> targets() {
+		return detectionRef == null ? List.of() : detectionRef.snapshot();
+	}
 
 	/** How many things are currently highlighted (shown in the menu). */
 	public static int targetCount() {
@@ -44,6 +54,9 @@ public final class BaseFinderMod implements ClientModInitializer {
 		// Rebindable under Options > Controls > Key Binds > "Base Finder ESP".
 		KeyMapping openGui = KeyMappingHelper.registerKeyMapping(new KeyMapping(
 			"key.basefinder.open_gui", InputConstants.Type.KEYSYM, InputConstants.KEY_RSHIFT, CATEGORY));
+		KeyMapping zoomKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+			"key.basefinder.zoom", InputConstants.Type.KEYSYM, InputConstants.KEY_C, CATEGORY));
+		ModuleHud moduleHud = new ModuleHud();
 
 		ClientChunkEvents.CHUNK_LOAD.register((level, chunk) -> detection.scanner().onChunkLoad(chunk));
 		ClientChunkEvents.CHUNK_UNLOAD.register((level, chunk) -> detection.scanner().onChunkUnload(chunk));
@@ -53,6 +66,7 @@ public final class BaseFinderMod implements ClientModInitializer {
 			while (openGui.consumeClick()) {
 				client.setScreen(new ClickGuiScreen());
 			}
+			Modules.tick(client, zoomKey.isDown());
 			detection.tick(client);
 		});
 
@@ -60,6 +74,8 @@ public final class BaseFinderMod implements ClientModInitializer {
 		LevelRenderEvents.AFTER_TRANSLUCENT_TERRAIN.register(renderer::draw);
 		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT,
 			Identifier.fromNamespaceAndPath(MOD_ID, "labels"), labels::extract);
+		HudElementRegistry.attachElementBefore(VanillaHudElements.CHAT,
+			Identifier.fromNamespaceAndPath(MOD_ID, "modules"), moduleHud::extract);
 
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
 			renderer.close();
