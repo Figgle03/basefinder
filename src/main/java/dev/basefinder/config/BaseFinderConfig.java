@@ -1,0 +1,111 @@
+package dev.basefinder.config;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import net.fabricmc.loader.api.FabricLoader;
+
+import java.io.IOException;
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/** Persistent settings, stored as JSON in the Fabric config directory. */
+public final class BaseFinderConfig {
+	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+	private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("basefinder.json");
+	private static BaseFinderConfig instance;
+
+	public boolean masterEnabled = true;
+	public Map<String, Boolean> enabled = new LinkedHashMap<>();
+	public Map<String, Integer> colors = new LinkedHashMap<>();
+
+	/** Scan/display range in blocks. Limited in practice by the server's view distance. */
+	public int range = 64;
+	public int maxTargets = 1500;
+	/** Fill opacity in percent (5-90). */
+	public int fillOpacity = 35;
+	public boolean showLabels = true;
+	public boolean showDistance = true;
+	public boolean showCoords = true;
+	public boolean entityIncludeMobs = false;
+	/** Minimum artificial blocks in one chunk before it is flagged as a structure. */
+	public int structureThreshold = 60;
+	/** Namespaced block ids for Block ESP. */
+	public List<String> blocks = new ArrayList<>(Arrays.asList(
+		"minecraft:obsidian", "minecraft:crying_obsidian", "minecraft:ender_chest",
+		"minecraft:furnace", "minecraft:blast_furnace", "minecraft:smoker",
+		"minecraft:crafting_table", "minecraft:enchanting_table", "minecraft:anvil",
+		"minecraft:beacon", "minecraft:respawn_anchor", "minecraft:spawner"
+	));
+
+	public static BaseFinderConfig get() {
+		if (instance == null) {
+			instance = load();
+		}
+		return instance;
+	}
+
+	private static BaseFinderConfig load() {
+		BaseFinderConfig cfg = null;
+		if (Files.exists(FILE)) {
+			try (Reader reader = Files.newBufferedReader(FILE)) {
+				cfg = GSON.fromJson(reader, BaseFinderConfig.class);
+			} catch (IOException | RuntimeException e) {
+				System.err.println("[BaseFinder] Could not read config, using defaults: " + e);
+			}
+		}
+		if (cfg == null) {
+			cfg = new BaseFinderConfig();
+		}
+		cfg.normalize();
+		return cfg;
+	}
+
+	private void normalize() {
+		if (enabled == null) enabled = new LinkedHashMap<>();
+		if (colors == null) colors = new LinkedHashMap<>();
+		if (blocks == null) blocks = new ArrayList<>();
+		for (EspCategory c : EspCategory.values()) {
+			enabled.putIfAbsent(c.name(), c != EspCategory.ENTITY);
+			colors.putIfAbsent(c.name(), c.defaultColor);
+		}
+		range = Math.max(16, Math.min(128, range));
+		maxTargets = Math.max(100, Math.min(5000, maxTargets));
+		fillOpacity = Math.max(5, Math.min(90, fillOpacity));
+		structureThreshold = Math.max(10, Math.min(400, structureThreshold));
+	}
+
+	public void save() {
+		normalize();
+		try {
+			Files.createDirectories(FILE.getParent());
+			try (Writer writer = Files.newBufferedWriter(FILE)) {
+				GSON.toJson(this, writer);
+			}
+		} catch (IOException e) {
+			System.err.println("[BaseFinder] Could not save config: " + e);
+		}
+	}
+
+	public boolean isOn(EspCategory c) {
+		return masterEnabled && enabled.getOrDefault(c.name(), false);
+	}
+
+	public void setOn(EspCategory c, boolean value) {
+		enabled.put(c.name(), value);
+	}
+
+	public int color(EspCategory c) {
+		return colors.getOrDefault(c.name(), c.defaultColor) & 0xFFFFFF;
+	}
+
+	public void setColor(EspCategory c, int rgb) {
+		colors.put(c.name(), rgb & 0xFFFFFF);
+	}
+}
