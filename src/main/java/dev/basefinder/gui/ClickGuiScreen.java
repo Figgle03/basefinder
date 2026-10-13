@@ -27,7 +27,7 @@ import java.util.function.IntSupplier;
 public final class ClickGuiScreen extends Screen {
 	private static final int PANEL_W = 340;
 	private static final int ROW_H = 24;
-	private static final int ROWS_PER_PAGE = 8;
+	private static final int ROWS_PER_PAGE = 10;
 	private static final int BG = 0xF0121317;
 	private static final int HEADER = 0xFF1C1E26;
 	private static final int ACCENT = 0xFF7C5CFF;
@@ -140,19 +140,92 @@ public final class ClickGuiScreen extends Screen {
 			}));
 		}
 
+		String[][] storage = {
+			{"chest", "Chests"}, {"trapped_chest", "Trapped chests"}, {"barrel", "Barrels"},
+			{"shulker_box", "Shulker boxes"}, {"ender_chest", "Ender chests"}, {"hopper", "Hoppers"},
+			{"dispenser", "Dispensers"}, {"dropper", "Droppers"}
+		};
+		for (String[] st : storage) {
+			allRows.add(new Row("Storage " + st[1], (x, y, w) ->
+				toggle(x, y, w, "Storage: " + st[1], () -> cfg.storageAllowed(st[0]),
+					v -> cfg.storageTypes.put(st[0], v))));
+		}
+
+		allRows.add(new Row("Structure markers", (x, y, w) ->
+			toggle(x, y, w, "Structure: markers", () -> cfg.structureShowMarkers,
+				v -> cfg.structureShowMarkers = v)));
+		allRows.add(new Row("Structure entrances doors", (x, y, w) ->
+			toggle(x, y, w, "Structure: entrances/doors", () -> cfg.structureShowDoors,
+				v -> cfg.structureShowDoors = v)));
+
+		for (String id : BaseFinderConfig.BLOCK_CATALOG) {
+			String nice = id.substring(id.indexOf(':') + 1).replace('_', ' ');
+			allRows.add(new Row("Block " + nice, (x, y, w) ->
+				toggle(x, y, w, "Block: " + nice, () -> cfg.blocks.contains(id), v -> {
+					if (v) {
+						if (!cfg.blocks.contains(id)) {
+							cfg.blocks.add(id);
+						}
+					} else {
+						cfg.blocks.remove(id);
+					}
+					BlockSets.invalidate();
+				})));
+		}
+
+		for (String id : BaseFinderConfig.XRAY_CATALOG) {
+			String nice = id.substring(id.indexOf(':') + 1).replace('_', ' ');
+			allRows.add(new Row("Xray ore " + nice, (x, y, w) ->
+				toggle(x, y, w, "Xray: " + nice, () -> cfg.xrayBlocks.contains(id), v -> {
+					if (v) {
+						if (!cfg.xrayBlocks.contains(id)) {
+							cfg.xrayBlocks.add(id);
+						}
+					} else {
+						cfg.xrayBlocks.remove(id);
+					}
+					BlockSets.invalidate();
+				})));
+		}
+
+		allRows.add(new Row("Freecam speed", (x, y, w) ->
+			slider(x, y, w, "Freecam speed", 1, 20, () -> cfg.freecamSpeed, v -> cfg.freecamSpeed = v)));
+
+		allRows.add(new Row("Custom block ids", (x, y, w) -> {
+			EditBox box = new EditBox(this.font, x, y, w, 18, Component.literal("Custom blocks"));
+			box.setMaxLength(2000);
+			box.setHint(Component.literal("Custom ids: minecraft:bed, ..."));
+			box.setValue(String.join(", ", cfg.customBlocks));
+			box.setResponder(text -> {
+				List<String> ids = new ArrayList<>();
+				for (String s : text.split(",")) {
+					if (!s.isBlank()) {
+						ids.add(s.trim());
+					}
+				}
+				cfg.customBlocks = ids;
+				BlockSets.invalidate();
+			});
+			this.addRenderableWidget(box);
+		}));
+
 		allRows.add(new Row("Range", (x, y, w) ->
-			slider(x, y, w, "Range", 16, 128, () -> cfg.range, v -> cfg.range = v)));
+			slider(x, y, w, "Range", 16, 512, () -> cfg.range, v -> cfg.range = v)));
 		allRows.add(new Row("Max targets", (x, y, w) ->
 			slider(x, y, w, "Max targets", 100, 5000, () -> cfg.maxTargets, v -> cfg.maxTargets = v)));
 		allRows.add(new Row("Fill opacity", (x, y, w) ->
 			slider(x, y, w, "Fill opacity %", 5, 90, () -> cfg.fillOpacity, v -> cfg.fillOpacity = v)));
 		allRows.add(new Row("Structure threshold sensitivity", (x, y, w) ->
 			slider(x, y, w, "Structure threshold", 10, 400, () -> cfg.structureThreshold,
-				v -> {
-					cfg.structureThreshold = v;
-				})));
+				v -> cfg.structureThreshold = v)));
+		allRows.add(new Row("Label range distance", (x, y, w) ->
+			slider(x, y, w, "Label range", 8, 512, () -> cfg.labelRange, v -> cfg.labelRange = v)));
+		allRows.add(new Row("Max labels", (x, y, w) ->
+			slider(x, y, w, "Max labels", 1, 64, () -> cfg.maxLabels, v -> cfg.maxLabels = v)));
 		allRows.add(new Row("Labels", (x, y, w) ->
 			toggle(x, y, w, "Labels", () -> cfg.showLabels, v -> cfg.showLabels = v)));
+		allRows.add(new Row("Label names", (x, y, w) ->
+			toggle(x, y, w, "Show names", () -> cfg.showNames, v -> cfg.showNames = v)));
 		allRows.add(new Row("Distance labels", (x, y, w) ->
 			toggle(x, y, w, "Show distance", () -> cfg.showDistance, v -> cfg.showDistance = v)));
 		allRows.add(new Row("Coordinates display", (x, y, w) ->
@@ -160,23 +233,6 @@ public final class ClickGuiScreen extends Screen {
 		allRows.add(new Row("Entity mobs include other entities", (x, y, w) ->
 			toggle(x, y, w, "Entity ESP: include mobs", () -> cfg.entityIncludeMobs,
 				v -> cfg.entityIncludeMobs = v)));
-		allRows.add(new Row("Block list ids obsidian furnace ender chest", (x, y, w) -> {
-			EditBox box = new EditBox(this.font, x, y, w, 18, Component.literal("Blocks"));
-			box.setMaxLength(2000);
-			box.setHint(Component.literal("minecraft:obsidian, minecraft:furnace, ..."));
-			box.setValue(String.join(", ", cfg.blocks));
-			box.setResponder(text -> {
-				List<String> ids = new ArrayList<>();
-				for (String s : Arrays.asList(text.split(","))) {
-					if (!s.isBlank()) {
-						ids.add(s.trim());
-					}
-				}
-				cfg.blocks = ids;
-				BlockSets.invalidate();
-			});
-			this.addRenderableWidget(box);
-		}));
 	}
 
 	private void toggle(int x, int y, int w, String label, BooleanSupplier get, Consumer<Boolean> set) {

@@ -3,6 +3,7 @@ package dev.basefinder;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.basefinder.config.BaseFinderConfig;
 import dev.basefinder.detect.DetectionManager;
+import dev.basefinder.freecam.Freecam;
 import dev.basefinder.gui.ClickGuiScreen;
 import dev.basefinder.render.EspRenderer;
 import dev.basefinder.render.LabelOverlay;
@@ -37,14 +38,24 @@ public final class BaseFinderMod implements ClientModInitializer {
 		KeyMapping openGui = KeyMappingHelper.registerKeyMapping(new KeyMapping(
 			"key.basefinder.open_gui", InputConstants.Type.KEYSYM, InputConstants.KEY_RSHIFT, CATEGORY));
 
+		KeyMapping freecamKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+			"key.basefinder.freecam", InputConstants.Type.KEYSYM, InputConstants.KEY_F6, CATEGORY));
+
 		ClientChunkEvents.CHUNK_LOAD.register((level, chunk) -> detection.scanner().onChunkLoad(chunk));
 		ClientChunkEvents.CHUNK_UNLOAD.register((level, chunk) -> detection.scanner().onChunkUnload(chunk));
-		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> detection.reset());
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+			detection.reset();
+			Freecam.reset();
+		});
 
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			while (openGui.consumeClick()) {
 				client.setScreen(new ClickGuiScreen());
 			}
+			while (freecamKey.consumeClick()) {
+				Freecam.toggle(client);
+			}
+			Freecam.tick(client);
 			detection.tick(client);
 		});
 

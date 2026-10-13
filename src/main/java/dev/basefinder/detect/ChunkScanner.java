@@ -127,6 +127,8 @@ public final class ChunkScanner {
 		Set<Block> wanted = BlockSets.wanted();
 		Set<Block> artificial = BlockSets.artificial();
 		boolean wantBlocks = !wanted.isEmpty();
+		Set<Block> xray = BlockSets.xray();
+		boolean wantXray = cfg.isOn(EspCategory.XRAY) && !xray.isEmpty();
 		boolean wantStructure = true;
 
 		int artCount = 0;
@@ -143,7 +145,8 @@ public final class ChunkScanner {
 			}
 			boolean hasWanted = wantBlocks && section.maybeHas(s -> wanted.contains(s.getBlock()));
 			boolean hasArtificial = wantStructure && section.maybeHas(s -> artificial.contains(s.getBlock()));
-			if (!hasWanted && !hasArtificial) {
+			boolean hasXray = wantXray && section.maybeHas(s -> xray.contains(s.getBlock()));
+			if (!hasWanted && !hasArtificial && !hasXray) {
 				continue;
 			}
 			int baseY = SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(i));
@@ -154,6 +157,10 @@ public final class ChunkScanner {
 						if (hasWanted && wanted.contains(block)) {
 							out.add(new Hit(new BlockPos(baseX + x, baseY + y, baseZ + z),
 								EspCategory.BLOCK, BlockSets.niceName(block), block));
+						}
+						if (hasXray && xray.contains(block)) {
+							out.add(new Hit(new BlockPos(baseX + x, baseY + y, baseZ + z),
+								EspCategory.XRAY, BlockSets.niceName(block), block));
 						}
 						if (hasArtificial && artificial.contains(block)) {
 							artCount++;

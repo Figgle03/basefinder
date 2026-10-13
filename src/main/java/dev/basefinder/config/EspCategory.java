@@ -5,6 +5,7 @@ public enum EspCategory {
 	STORAGE("Storage ESP", 0xFFB020),
 	UNDERGROUND("Underground ESP", 0x38D9A9),
 	BLOCK("Block ESP", 0xB366FF),
+	XRAY("Xray (ores)", 0x6BFF6B),
 	ENTITY("Entity ESP", 0xFF4D4D),
 	STRUCTURE("Structure ESP", 0x4DA6FF);
 

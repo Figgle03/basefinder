@@ -17,8 +17,6 @@ import java.util.List;
  * The FOV used is the base option value, so labels drift slightly during sprint/speed FOV effects.
  */
 public final class LabelOverlay {
-	private static final int MAX_LABELS = 64;
-
 	private final DetectionManager detection;
 
 	public LabelOverlay(DetectionManager detection) {
@@ -38,8 +36,9 @@ public final class LabelOverlay {
 		}
 
 		float partial = tickCounter.getGameTimeDeltaPartialTick(false);
-		Vec3 eye = player.getEyePosition(partial);
-		Vec3 forward = player.getViewVector(partial).normalize();
+		net.minecraft.world.entity.Entity view = mc.getCameraEntity() != null ? mc.getCameraEntity() : player;
+		Vec3 eye = view.getEyePosition(partial);
+		Vec3 forward = view.getViewVector(partial).normalize();
 		Vec3 right = forward.cross(new Vec3(0, 1, 0));
 		if (right.lengthSqr() < 1.0E-6) {
 			return; // looking straight up or down
@@ -54,7 +53,7 @@ public final class LabelOverlay {
 
 		int drawn = 0;
 		for (Target t : targets) {
-			if (drawn >= MAX_LABELS) {
+			if (drawn >= cfg.maxLabels || t.distance() > cfg.labelRange) {
 				break;
 			}
 			Vec3 d = new Vec3(t.cx() - eye.x, t.cy() + 0.7 - eye.y, t.cz() - eye.z);
@@ -70,7 +69,7 @@ public final class LabelOverlay {
 			int sx = (int) (w / 2.0 + nx * w / 2.0);
 			int sy = (int) (h / 2.0 - ny * h / 2.0);
 
-			StringBuilder text = new StringBuilder(t.name());
+			StringBuilder text = new StringBuilder(cfg.showNames ? t.name() : "");
 			if (cfg.showDistance) {
 				text.append(" ").append(Math.round(t.distance())).append("m");
 			}
@@ -81,7 +80,10 @@ public final class LabelOverlay {
 				text.append(" [").append((int) Math.floor(t.cx())).append(' ').append((int) Math.floor(t.cy()))
 					.append(' ').append((int) Math.floor(t.cz())).append(']');
 			}
-			String s = text.toString();
+			String s = text.toString().trim();
+			if (s.isEmpty()) {
+				continue;
+			}
 			int tw = mc.font.width(s);
 			int x = sx - tw / 2;
 			graphics.fill(x - 2, sy - 2, x + tw + 2, sy + mc.font.lineHeight + 1, 0x99000000);

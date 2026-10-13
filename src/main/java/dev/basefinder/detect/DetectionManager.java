@@ -80,8 +80,22 @@ public final class DetectionManager {
 				if (hit.block() != null && level.getBlockState(p).getBlock() != hit.block()) {
 					continue;
 				}
+				// User filters: storage types, structure parts, and no double-drawing of storage in Block ESP.
+				if (hit.category() == EspCategory.STORAGE) {
+					String key = BlockSets.storageKey(hit.block());
+					if (key != null && !cfg.storageAllowed(key)) {
+						continue;
+					}
+				} else if (hit.category() == EspCategory.BLOCK && BlockSets.storageKey(hit.block()) != null) {
+					continue;
+				} else if (hit.category() == EspCategory.STRUCTURE) {
+					boolean door = "possible entrance".equals(hit.name());
+					if (door ? !cfg.structureShowDoors : !cfg.structureShowMarkers) {
+						continue;
+					}
+				}
 				EspCategory shown = null;
-				boolean underground = hit.category() != EspCategory.BLOCK
+				boolean underground = hit.category() != EspCategory.BLOCK && hit.category() != EspCategory.XRAY
 					&& p.getY() < py - 2 && !level.canSeeSky(p.above());
 				if (ug && underground) {
 					shown = EspCategory.UNDERGROUND;

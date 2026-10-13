@@ -21,13 +21,17 @@ public final class BlockSets {
 	private static Set<Block> wanted = Set.of();
 	private static List<String> wantedSource = null;
 	private static Set<Block> artificial;
+	private static Set<Block> xray = Set.of();
+	private static List<String> xraySource = null;
 
 	private BlockSets() {
 	}
 
 	/** Blocks selected for Block ESP, re-resolved only when the configured id list changes. */
 	public static Set<Block> wanted() {
-		List<String> ids = BaseFinderConfig.get().blocks;
+		BaseFinderConfig cfg = BaseFinderConfig.get();
+		List<String> ids = new java.util.ArrayList<>(cfg.blocks);
+		ids.addAll(cfg.customBlocks);
 		if (wantedSource == null || !wantedSource.equals(ids)) {
 			Set<Block> set = new HashSet<>();
 			for (String raw : ids) {
@@ -42,9 +46,27 @@ public final class BlockSets {
 		return wanted;
 	}
 
+	/** Ore blocks selected for the Xray category. */
+	public static Set<Block> xray() {
+		List<String> ids = BaseFinderConfig.get().xrayBlocks;
+		if (xraySource == null || !xraySource.equals(ids)) {
+			Set<Block> set = new HashSet<>();
+			for (String raw : ids) {
+				Identifier id = Identifier.tryParse(raw.trim());
+				if (id != null) {
+					BuiltInRegistries.BLOCK.getOptional(id).ifPresent(set::add);
+				}
+			}
+			xray = set;
+			xraySource = List.copyOf(ids);
+		}
+		return xray;
+	}
+
 	/** Forces the next call to wanted() to re-read the config. */
 	public static void invalidate() {
 		wantedSource = null;
+		xraySource = null;
 	}
 
 	/** Blocks whose names suggest construction (planks, bricks, glass, doors, concrete...). */
@@ -76,6 +98,23 @@ public final class BlockSets {
 			|| be instanceof EnderChestBlockEntity
 			|| be instanceof HopperBlockEntity
 			|| be instanceof DispenserBlockEntity; // droppers extend dispensers
+	}
+
+	/** Storage type key for a block (matches BaseFinderConfig.STORAGE_KEYS), or null if it is not storage. */
+	public static String storageKey(Block block) {
+		if (block == null) {
+			return null;
+		}
+		String path = BuiltInRegistries.BLOCK.getKey(block).getPath();
+		if (path.endsWith("shulker_box")) {
+			return "shulker_box";
+		}
+		for (String key : BaseFinderConfig.STORAGE_KEYS) {
+			if (key.equals(path)) {
+				return key;
+			}
+		}
+		return null;
 	}
 
 	public static String niceName(Block block) {
