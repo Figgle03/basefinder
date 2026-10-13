@@ -7,7 +7,6 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -46,16 +45,24 @@ public final class ChunkScanner {
 	private final LongOpenHashSet queued = new LongOpenHashSet();
 	private long tick;
 
+	private static long pack(int cx, int cz) {
+		return (cx & 0xFFFFFFFFL) | ((long) cz << 32);
+	}
+
+	private static long keyOf(LevelChunk chunk) {
+		return pack(chunk.getPos().getMinBlockX() >> 4, chunk.getPos().getMinBlockZ() >> 4);
+	}
+
 	public Iterable<Entry> entries() {
 		return cache.values();
 	}
 
 	public void onChunkLoad(LevelChunk chunk) {
-		enqueue(chunk.getPos().toLong());
+		enqueue(keyOf(chunk));
 	}
 
 	public void onChunkUnload(LevelChunk chunk) {
-		long key = chunk.getPos().toLong();
+		long key = keyOf(chunk);
 		cache.remove(key);
 		queued.remove(key);
 	}
@@ -83,7 +90,7 @@ public final class ChunkScanner {
 				double dx = e.cx * 16 + 8 - px;
 				double dz = e.cz * 16 + 8 - pz;
 				if (Math.abs(dx) <= reach && Math.abs(dz) <= reach && tick - e.lastScanTick >= RESCAN_TICKS) {
-					enqueue(ChunkPos.asLong(e.cx, e.cz));
+					enqueue(pack(e.cx, e.cz));
 				}
 			}
 		}
@@ -92,8 +99,8 @@ public final class ChunkScanner {
 		while (!queue.isEmpty() && System.nanoTime() - start < BUDGET_NANOS) {
 			long key = queue.poll();
 			queued.remove(key);
-			int cx = ChunkPos.getX(key);
-			int cz = ChunkPos.getZ(key);
+			int cx = (int) key;
+			int cz = (int) (key >> 32);
 			LevelChunk chunk = level.getChunkSource().getChunkNow(cx, cz);
 			if (chunk == null) {
 				cache.remove(key);
