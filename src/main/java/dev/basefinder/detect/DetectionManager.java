@@ -80,14 +80,12 @@ public final class DetectionManager {
 				if (hit.block() != null && level.getBlockState(p).getBlock() != hit.block()) {
 					continue;
 				}
-				// User filters: storage types, structure parts, and no double-drawing of storage in Block ESP.
+				// User filters for storage types and structure parts.
 				if (hit.category() == EspCategory.STORAGE) {
 					String key = BlockSets.storageKey(hit.block());
 					if (key != null && !cfg.storageAllowed(key)) {
 						continue;
 					}
-				} else if (hit.category() == EspCategory.BLOCK && BlockSets.storageKey(hit.block()) != null) {
-					continue;
 				} else if (hit.category() == EspCategory.STRUCTURE) {
 					boolean door = "possible entrance".equals(hit.name());
 					if (door ? !cfg.structureShowDoors : !cfg.structureShowMarkers) {
@@ -95,7 +93,7 @@ public final class DetectionManager {
 					}
 				}
 				EspCategory shown = null;
-				boolean underground = hit.category() != EspCategory.BLOCK && hit.category() != EspCategory.XRAY
+				boolean underground = hit.category() != EspCategory.BLOCK
 					&& p.getY() < py - 2 && !level.canSeeSky(p.above());
 				if (ug && underground) {
 					shown = EspCategory.UNDERGROUND;
@@ -105,8 +103,9 @@ public final class DetectionManager {
 				if (shown == null) {
 					continue;
 				}
+				int rgb = shown == EspCategory.BLOCK ? BlockSets.colorFor(hit.block()) : cfg.color(shown);
 				out.add(new Target(new AABB(p), p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5,
-					cfg.color(shown), shown, hit.name(), p, Math.sqrt(d2)));
+					rgb, shown, hit.name(), p, Math.sqrt(d2)));
 			}
 		}
 

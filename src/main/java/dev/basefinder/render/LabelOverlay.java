@@ -36,9 +36,8 @@ public final class LabelOverlay {
 		}
 
 		float partial = tickCounter.getGameTimeDeltaPartialTick(false);
-		net.minecraft.world.entity.Entity view = mc.getCameraEntity() != null ? mc.getCameraEntity() : player;
-		Vec3 eye = view.getEyePosition(partial);
-		Vec3 forward = view.getViewVector(partial).normalize();
+		Vec3 eye = player.getEyePosition(partial);
+		Vec3 forward = player.getViewVector(partial).normalize();
 		Vec3 right = forward.cross(new Vec3(0, 1, 0));
 		if (right.lengthSqr() < 1.0E-6) {
 			return; // looking straight up or down

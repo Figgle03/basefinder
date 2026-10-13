@@ -27,6 +27,8 @@ import java.util.Set;
 public final class ChunkScanner {
 	private static final long BUDGET_NANOS = 1_500_000L; // about 1.5 ms of scanning per tick
 	private static final int RESCAN_TICKS = 100;
+	/** Safety cap so picking a very common block (stone, dirt) cannot flood one chunk's cache. */
+	private static final int MAX_BLOCK_HITS_PER_CHUNK = 3000;
 
 	public static final class Entry {
 		public final int cx;
@@ -44,6 +46,7 @@ public final class ChunkScanner {
 	private final ArrayDeque<Long> queue = new ArrayDeque<>();
 	private final LongOpenHashSet queued = new LongOpenHashSet();
 	private long tick;
+	private int seenVersion = -1;
 
 	private static long pack(int cx, int cz) {
 		return (cx & 0xFFFFFFFFL) | ((long) cz << 32);
@@ -83,6 +86,14 @@ public final class ChunkScanner {
 	public void tick(ClientLevel level, double px, double pz) {
 		tick++;
 		BaseFinderConfig cfg = BaseFinderConfig.get();
+
+		// The block selection changed in the GUI: rescan everything we already know about.
+		if (seenVersion != BlockSets.version()) {
+			seenVersion = BlockSets.version();
+			for (Entry e : cache.values()) {
+				enqueue(pack(e.cx, e.cz));
+			}
+		}
 
 		if (tick % 20 == 0 && queue.isEmpty()) {
 			double reach = cfg.range + 16;
@@ -127,10 +138,8 @@ public final class ChunkScanner {
 		Set<Block> wanted = BlockSets.wanted();
 		Set<Block> artificial = BlockSets.artificial();
 		boolean wantBlocks = !wanted.isEmpty();
-		Set<Block> xray = BlockSets.xray();
-		boolean wantXray = cfg.isOn(EspCategory.XRAY) && !xray.isEmpty();
-		boolean wantStructure = true;
 
+		int blockHits = 0;
 		int artCount = 0;
 		long sumX = 0, sumY = 0, sumZ = 0;
 		List<Hit> doors = new ArrayList<>();
@@ -144,9 +153,8 @@ public final class ChunkScanner {
 				continue;
 			}
 			boolean hasWanted = wantBlocks && section.maybeHas(s -> wanted.contains(s.getBlock()));
-			boolean hasArtificial = wantStructure && section.maybeHas(s -> artificial.contains(s.getBlock()));
-			boolean hasXray = wantXray && section.maybeHas(s -> xray.contains(s.getBlock()));
-			if (!hasWanted && !hasArtificial && !hasXray) {
+			boolean hasArtificial = section.maybeHas(s -> artificial.contains(s.getBlock()));
+			if (!hasWanted && !hasArtificial) {
 				continue;
 			}
 			int baseY = SectionPos.sectionToBlockCoord(chunk.getSectionYFromSectionIndex(i));
@@ -154,13 +162,10 @@ public final class ChunkScanner {
 				for (int z = 0; z < 16; z++) {
 					for (int x = 0; x < 16; x++) {
 						Block block = section.getBlockState(x, y, z).getBlock();
-						if (hasWanted && wanted.contains(block)) {
+						if (hasWanted && blockHits < MAX_BLOCK_HITS_PER_CHUNK && wanted.contains(block)) {
 							out.add(new Hit(new BlockPos(baseX + x, baseY + y, baseZ + z),
 								EspCategory.BLOCK, BlockSets.niceName(block), block));
-						}
-						if (hasXray && xray.contains(block)) {
-							out.add(new Hit(new BlockPos(baseX + x, baseY + y, baseZ + z),
-								EspCategory.XRAY, BlockSets.niceName(block), block));
+							blockHits++;
 						}
 						if (hasArtificial && artificial.contains(block)) {
 							artCount++;

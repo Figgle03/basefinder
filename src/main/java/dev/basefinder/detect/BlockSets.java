@@ -1,6 +1,7 @@
 package dev.basefinder.detect;
 
 import dev.basefinder.config.BaseFinderConfig;
+import dev.basefinder.config.EspCategory;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
@@ -12,32 +13,36 @@ import net.minecraft.world.level.block.entity.EnderChestBlockEntity;
 import net.minecraft.world.level.block.entity.HopperBlockEntity;
 import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
-/** Resolves configured block ids and the built-in "looks man-made" block set. Both are cached. */
+/** Resolves configured block ids, per-block colors and the "looks man-made" block set. All cached. */
 public final class BlockSets {
 	private static Set<Block> wanted = Set.of();
 	private static List<String> wantedSource = null;
 	private static Set<Block> artificial;
-	private static Set<Block> xray = Set.of();
-	private static List<String> xraySource = null;
+	private static final Map<Block, Integer> COLORS = new HashMap<>();
+	private static int version;
 
 	private BlockSets() {
 	}
 
-	/** Blocks selected for Block ESP, re-resolved only when the configured id list changes. */
+	/** Blocks selected in the Blocks tab. Storage blocks are skipped here; the Storage tab handles them. */
 	public static Set<Block> wanted() {
-		BaseFinderConfig cfg = BaseFinderConfig.get();
-		List<String> ids = new java.util.ArrayList<>(cfg.blocks);
-		ids.addAll(cfg.customBlocks);
+		List<String> ids = BaseFinderConfig.get().blocks;
 		if (wantedSource == null || !wantedSource.equals(ids)) {
 			Set<Block> set = new HashSet<>();
 			for (String raw : ids) {
 				Identifier id = Identifier.tryParse(raw.trim());
 				if (id != null) {
-					BuiltInRegistries.BLOCK.getOptional(id).ifPresent(set::add);
+					BuiltInRegistries.BLOCK.getOptional(id).ifPresent(b -> {
+						if (storageKey(b) == null) {
+							set.add(b);
+						}
+					});
 				}
 			}
 			wanted = set;
@@ -46,27 +51,32 @@ public final class BlockSets {
 		return wanted;
 	}
 
-	/** Ore blocks selected for the Xray category. */
-	public static Set<Block> xray() {
-		List<String> ids = BaseFinderConfig.get().xrayBlocks;
-		if (xraySource == null || !xraySource.equals(ids)) {
-			Set<Block> set = new HashSet<>();
-			for (String raw : ids) {
-				Identifier id = Identifier.tryParse(raw.trim());
-				if (id != null) {
-					BuiltInRegistries.BLOCK.getOptional(id).ifPresent(set::add);
-				}
-			}
-			xray = set;
-			xraySource = List.copyOf(ids);
-		}
-		return xray;
+	/** Bumped whenever the selected blocks change, so cached chunks get rescanned. */
+	public static int version() {
+		return version;
 	}
 
-	/** Forces the next call to wanted() to re-read the config. */
+	/** Call after the selected block list changes. */
 	public static void invalidate() {
 		wantedSource = null;
-		xraySource = null;
+		COLORS.clear();
+		version++;
+	}
+
+	/** Call after only colors changed. */
+	public static void invalidateColors() {
+		COLORS.clear();
+	}
+
+	public static int colorFor(Block block) {
+		Integer cached = COLORS.get(block);
+		if (cached == null) {
+			BaseFinderConfig cfg = BaseFinderConfig.get();
+			Integer own = cfg.blockColor(BuiltInRegistries.BLOCK.getKey(block).toString());
+			cached = own != null ? own & 0xFFFFFF : cfg.color(EspCategory.BLOCK);
+			COLORS.put(block, cached);
+		}
+		return cached;
 	}
 
 	/** Blocks whose names suggest construction (planks, bricks, glass, doors, concrete...). */
